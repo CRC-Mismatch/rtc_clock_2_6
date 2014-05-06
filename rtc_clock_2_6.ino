@@ -1,12 +1,12 @@
 #include <stdio.h>
-#include "DS1302.h"
-#include "TimedAction.h"
-#include "FL7Dl.h"
+#include <DS1302.h>
+#include <TimedAction.h>
+#include <FL7Dl.h>
 #include <EEPROM.h>
 
 #define MAX_DELAY 30U
 #define MAX_BRITE 500
-#define SSP 11
+#define SSP A5
 #define DTP 12
 #define CLP 13
 #define alP 2
@@ -108,7 +108,7 @@ void chkAlUpdate() {
     alarm = newAl;
     EEPROM.write(0xa1, newAl % 100);
     newAl /= 100;
-    EEPROM.write(0xa2, newAl);
+    EEPROM.write(0xa2, newAl & B0111111);
     char buf2[50];
     snprintf(buf2, sizeof(buf2), "\nAlarm set to: %02d:%02d", alarm / 100, alarm % 100);
     Serial.println(buf2);
@@ -240,7 +240,7 @@ void setup() {
   dispNew.setInterval(ddelay);
   byte lo, hi;
   lo = EEPROM.read(0xa1);
-  hi = EEPROM.read(0xa2);
+  hi = EEPROM.read(0xa2) & B01111111;
   alarm = (hi * 100) + lo;
   lo = EEPROM.read(0xb1);
   hi = EEPROM.read(0xb2);
