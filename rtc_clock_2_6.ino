@@ -1,7 +1,7 @@
 #include <stdio.h>
-#include "include/DS1302.h"
-#include "include/TimedAction.h"
-#include "include/FL7Dl.h"
+#include "DS1302.h"
+#include "TimedAction.h"
+#include "FL7Dl.h"
 #include <EEPROM.h>
 
 #define MAX_DELAY 30U
