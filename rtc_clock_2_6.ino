@@ -2,6 +2,7 @@
 #include <DS1302.h>
 #include <TimedAction.h>
 #include <FL7Dl.h>
+#include <NewTone.h>
 #include <EEPROM.h>
 
 #define MAX_DELAY 30U
@@ -31,6 +32,7 @@ byte alState = 0;
 byte ddelay = 10;
 byte sss = 0;
 int brite = 500;
+bool alOn = false;
 
 void tick() {
   if (sss > 59) {
@@ -99,6 +101,7 @@ void chkAlUpdate() {
     } else if (now > alarm + 2 && now <= alarm + 3) {
       checkAlarm.disable();
     }
+    disp.alarm(alOn);
   }
   if (Serial.peek() == '#' && Serial.available() >= 5) {
     Serial.read();
@@ -108,7 +111,9 @@ void chkAlUpdate() {
     alarm = newAl;
     EEPROM.write(0xa1, newAl % 100);
     newAl /= 100;
-    EEPROM.write(0xa2, newAl & B0111111);
+    if (alarm > 0 && alarm < 2400) alOn = true;
+    newAl |= alOn << 7;
+    EEPROM.write(0xa2, newAl);
     char buf2[50];
     snprintf(buf2, sizeof(buf2), "\nAlarm set to: %02d:%02d", alarm / 100, alarm % 100);
     Serial.println(buf2);
@@ -172,10 +177,10 @@ void chkAlUpdate() {
 }
 
 void alarmDo() {
-  if (now >= alarm && now < alarm + 2) {
+  if (now >= alarm && now < alarm + 2 && alOn) {
   switch (alState) {
     case 0:
-      tone(alP, 4000, 100);
+      NewTone(alP, 4000, 100);
       disp.alarm(ON);
       disp.yellow(ON);
       disp.green(ON);
@@ -185,7 +190,7 @@ void alarmDo() {
       alState++;
       break;
     case 1:
-      tone(alP, 4000, 100);
+      NewTone(alP, 4000, 100);
       disp.alarm(OFF);
       disp.yellow(OFF);
       disp.green(OFF);
@@ -194,7 +199,7 @@ void alarmDo() {
       alState++;
       break;
     case 2:
-      tone(alP, 4000, 100);
+      NewTone(alP, 4000, 100);
       disp.alarm(ON);
       disp.yellow(ON);
       disp.green(ON);
@@ -203,7 +208,7 @@ void alarmDo() {
       alState++;
       break;
     case 3:
-      tone(alP, 4000, 100);
+      NewTone(alP, 4000, 100);
       disp.alarm(OFF);
       disp.yellow(OFF);
       disp.green(OFF);
@@ -212,7 +217,7 @@ void alarmDo() {
       alState++;
       break;
     case 4:
-      noTone(alP);
+      noNewTone(alP);
       checkAlarm.setInterval(400);
       alState = 0;
       break;
@@ -225,7 +230,7 @@ void alarmDo() {
       dispNew.setInterval(ddelay);    
       disp.setBrightness(brite);
     alState = 0;
-    noTone(alP);
+    noNewTone(alP);
   }
 }
 
