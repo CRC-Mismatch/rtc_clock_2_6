@@ -1,26 +1,36 @@
 #include <stdio.h>
 #include <DS1302.h>
 #include <TimedAction.h>
-#include <FL7Dl.h>
+#include <MAX7219D.h>
 #include <NewTone.h>
 #include <EEPROM.h>
 
 #define MAX_DELAY 30U
 #define MAX_BRITE 500
-#define SSP A5
+#define SSP 11
 #define DTP 12
 #define CLP 13
-#define alP 2
 #define tickI 1000U
 #define rtcI 5000U
 #define alChk 2000U
 #define alI 500U
 
-FL7Dl disp = FL7Dl();
+#ifdef MAX7219D_H
+  #define MCLK 5
+  #define MCS 6
+  #define MDATA 7
+  #define alP A0
+  MAX7219D disp = MAX7219D(MCLK, MCS, MDATA);
+  TimedAction dispNew = TimedAction(500, dispNum);
+#elif defined FL7Dl_H
+  #define alP 2
+  FL7Dl disp = FL7Dl();
+  TimedAction dispNew = TimedAction(10, dispNum);
+#endif
+
 DS1302 rtc = DS1302(SSP, DTP, CLP);
 TimedAction ticker = TimedAction(tickI, tick);
 TimedAction rtcUpdater = TimedAction(rtcI, rtcUpdate);
-TimedAction dispNew = TimedAction(10, dispNum);
 TimedAction checkAlUpd = TimedAction(alChk, chkAlUpdate);
 TimedAction checkAlarm = TimedAction(alI, alarmDo);
 TimedAction iniSet = TimedAction(10, setting);
@@ -29,7 +39,7 @@ boolean hasSet = false;
 int now = 0;
 int alarm = 2500;
 byte alState = 0;
-byte ddelay = 10;
+byte ddelay = 500;
 byte sss = 0;
 int brite = 500;
 bool alOn = false;
@@ -108,12 +118,14 @@ void chkAlUpdate() {
     char buffer1[5];
     Serial.readBytes(buffer1, 4);
     int newAl = atoi(buffer1);
-    alarm = newAl;
-    EEPROM.write(0xa1, newAl % 100);
-    newAl /= 100;
+    if (newAl != alarm) {
+      alarm = newAl;
+      EEPROM.write(0xa1, newAl % 100);
+      newAl /= 100;
+      newAl |= alOn << 7;
+      EEPROM.write(0xa2, newAl);
+    }
     if (alarm > 0 && alarm < 2400) alOn = true;
-    newAl |= alOn << 7;
-    EEPROM.write(0xa2, newAl);
     char buf2[50];
     snprintf(buf2, sizeof(buf2), "\nAlarm set to: %02d:%02d", alarm / 100, alarm % 100);
     Serial.println(buf2);
@@ -129,25 +141,35 @@ void chkAlUpdate() {
   if (Serial.peek() == '!' && Serial.available() >= 4) {
     Serial.read();
     char buffer2[4];
+    int nbrite;
     buffer2[3] = '\0';
     Serial.readBytes(buffer2, 3);
-    brite = atoi(buffer2);
-    brite = (brite > MAX_BRITE) ? MAX_BRITE : brite;
-    EEPROM.write(0xb1, brite % 100);
-    EEPROM.write(0xb2, brite / 100);
-    disp.setBrightness(brite);
-    disp.tick(OFF);
-    int n = 0;
+    nbrite = atoi(buffer2);
+    nbrite = (nbrite > MAX_BRITE) ? MAX_BRITE : nbrite;
+    if (nbrite != brite) {
+      brite = nbrite;
+      EEPROM.write(0xb1, brite % 100);
+      EEPROM.write(0xb2, brite / 100);
+      disp.setBrightness(brite);
+    }
     char buf2[50];
     snprintf(buf2, sizeof(buf2), "\nBrightness set to: %03d", brite);
     Serial.println(buf2);
+    disp.tick(OFF);
+#ifdef FL7Dl_H
+    int n = 0;
     while (n < (2000 / (ddelay + (brite*4/1000)))) {
       disp.showTime(brite);
       n++;
       delay(ddelay);
     }
+#elif defined MAX7219D_H
+    disp.showTime(brite);
+    delay(2000);
+#endif
     disp.tick(ON);
   }
+#ifdef FL7Dl_H
   if (Serial.peek() == '$' && Serial.available() >= 2) {
     Serial.read();
     char buffer3[3];
@@ -155,9 +177,11 @@ void chkAlUpdate() {
     Serial.readBytes(buffer3, 2);
     int dela = atoi(buffer3);
     dela = (dela > MAX_DELAY) ? MAX_DELAY : dela;
-    EEPROM.write(0xde, dela);
-    ddelay = dela;
-    dispNew.setInterval(ddelay);
+    if (ddelay != dela) {
+      EEPROM.write(0xde, dela);
+      ddelay = dela;
+      dispNew.setInterval(ddelay);
+    }
     disp.tick(OFF);
     int n = 0;
     char buf2[50];
@@ -170,7 +194,15 @@ void chkAlUpdate() {
     }
     disp.tick(ON);    
   }
-  Serial.flush();
+#endif
+#ifdef MAX7219D_H
+  if (Serial.peek() == '$') {
+    Serial.read();
+    disp.on();
+    disp.test();
+  }
+#endif
+  Serial.read();
   if (alarm >= 0 && alarm <= 2359) {
     disp.alarm(ON);
   }
@@ -237,12 +269,14 @@ void alarmDo() {
 void setup() {
   Serial.begin(9600);
   Serial.write("!?!");
+#ifdef FL7Dl_H
   ddelay = EEPROM.read(0xde);
   if (ddelay > MAX_DELAY) {
     ddelay = MAX_DELAY;
     EEPROM.write(0xde, MAX_DELAY);
   }
   dispNew.setInterval(ddelay);
+#endif
   byte lo, hi;
   lo = EEPROM.read(0xa1);
   hi = EEPROM.read(0xa2) & B01111111;
@@ -258,24 +292,40 @@ void setup() {
   disp.setBrightness(brite);
   now = 0;
   disp.tick(OFF);
+  disp.showTime(now);
+  disp.on();
   int w = 0;
   iniSet.reset();
+#ifdef FL7Dl_H
   while (w < (2000 / (ddelay + (brite*4 / 1000))) && !hasSet) {
     disp.showString("sett");
     iniSet.check();
     w++;
     delay(ddelay);
   }
+#elif defined MAX7219D_H
+  disp.showString("sett");
+  while (w < 20) {
+    iniSet.check();
+    w++;
+    delay(100);
+  }
+#endif
   rtcUpdate();
   chkAlUpdate();
   if (!hasSet) {
     disp.tick(ON);
+#ifdef FL7Dl_H
     int n = 0;
-    while (n < (1000 / (ddelay + (brite * 4 / 1000)))) {
+    while (n < (2000 / (ddelay + (brite * 4 / 1000)))) {
       disp.showTime(alarm);
       n++;
       delay(ddelay);
     }
+#elif defined MAX7219D_H
+    disp.showTime(alarm);
+    delay(2000);
+#endif
     disp.tick(OFF);
   }
   if (now < alarm || now > alarm + 2) checkAlarm.disable();
