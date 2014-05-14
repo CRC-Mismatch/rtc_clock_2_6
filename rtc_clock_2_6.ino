@@ -66,6 +66,7 @@ void tick() {
 }
 
 void rtcUpdate() { 
+  rtc.halt(false);
   Time t = rtc.time();
   now = (t.hr * 100) + t.min;
   sss = t.sec;
@@ -101,6 +102,7 @@ void chkAlUpdate() {
     rtc.time(newT);
     char buf2[50];
     rtc.writeProtect(true);
+    rtc.halt(false);
     Time t = rtc.time();
     snprintf(buf2, sizeof(buf2), "\nTime set to: %01d, %02d/%02d/%04d - %02d:%02d:%02d", t.day, t.date, t.mon, t.yr, t.hr, t.min, t.sec);
     Serial.println(buf2);
