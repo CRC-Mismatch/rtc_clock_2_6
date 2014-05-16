@@ -7,9 +7,11 @@
 
 #define MAX_DELAY 30U
 #define MAX_BRITE 500
-#define SSP 11
+#define SSP 13
 #define DTP 12
-#define CLP 13
+#define CLP 11
+#define VCCP 9
+#define GNDP 10
 #define tickI 1000U
 #define rtcI 5000U
 #define alChk 2000U
@@ -72,8 +74,24 @@ void rtcUpdate() {
   sss = t.sec;
 }
 
+char* dayAsString(const Time::Day day) {
+  switch (day) {
+    case Time::kSunday: return "Sunday";
+    case Time::kMonday: return "Monday";
+    case Time::kTuesday: return "Tuesday";
+    case Time::kWednesday: return "Wednesday";
+    case Time::kThursday: return "Thursday";
+    case Time::kFriday: return "Friday";
+    case Time::kSaturday: return "Saturday";
+  }
+  return "(unknown day)";
+}
+
 void dispNum() {
   disp.showTime(now);
+  char buffer[100];
+  snprintf(buffer, sizeof(buffer), "\x1b[2J\x1b[H%s, %02d/%02d/%04d\r\n%02d:%02d:%02d\r\nWrite protection: %d\r\nAlarm: %02d:%02d\r\nBright: %03d\r\nDelay: %02d\r\n", dayAsString(rtc.day()), rtc.date(), rtc.month(), rtc.year(), rtc.hour(), rtc.minutes(), rtc.seconds(), rtc.readRegister(DS1302::Register(7)), alarm / 100, alarm % 100, brite, ddelay); 
+  Serial.println(buffer);
 }
 
 void chkAlUpdate() {
@@ -269,7 +287,11 @@ void alarmDo() {
 }
 
 void setup() {
-  Serial.begin(9600);
+  pinMode(9, OUTPUT);
+  pinMode(10, OUTPUT);
+  digitalWrite(10, LOW);
+  digitalWrite(9, HIGH);
+  Serial.begin(115200);
   Serial.write("!?!");
 #ifdef FL7Dl_H
   ddelay = EEPROM.read(0xde);
