@@ -3,13 +3,15 @@
 #include <TimedAction.h>
 #include <MAX7219D.h>
 #include <NewTone.h>
+#include <IRremote.h>
+#include <avr/sleep.h>
 #include <EEPROM.h>
 
 #define MAX_DELAY 30U
 #define MAX_BRITE 500
-#define SSP 11
+#define SSP 13
 #define DTP 12
-#define CLP 13
+#define CLP 11
 #define tickI 1000U
 #define rtcI 5000U
 #define alChk 2000U
@@ -18,7 +20,7 @@
 #ifdef MAX7219D_H
   #define MCLK 5
   #define MCS 6
-  #define MDATA 7
+  #define MDATA 2
   #define alP A0
   MAX7219D disp = MAX7219D(MCLK, MCS, MDATA);
   TimedAction dispNew = TimedAction(500, dispNum);
@@ -29,6 +31,8 @@
 #endif
 
 DS1302 rtc = DS1302(SSP, DTP, CLP);
+IRrecv irrecv(3);
+decode_results res;
 TimedAction ticker = TimedAction(tickI, tick);
 TimedAction rtcUpdater = TimedAction(rtcI, rtcUpdate);
 TimedAction checkAlUpd = TimedAction(alChk, chkAlUpdate);
@@ -38,11 +42,12 @@ TimedAction iniSet = TimedAction(10, setting);
 boolean hasSet = false;
 int now = 0;
 int alarm = 2500;
+bool alOn = false;
 byte alState = 0;
 byte ddelay = 500;
 byte sss = 0;
 int brite = 500;
-bool alOn = false;
+uint32_t lastres = 0;
 
 void tick() {
   if (sss > 59) {
@@ -58,11 +63,12 @@ void tick() {
   if (now / 100 > 23) {
     now = 0;
   }
-  if (now >= alarm - 1) {
+  if (now >= alarm - 1 && alOn) {
     checkAlarm.enable();
   } else if (now > alarm + 2 && now <= alarm + 3) {
     checkAlarm.disable();
   }
+  if (alarm >= 0 && alarm <= 2359 && alOn) disp.alarm(ON); else disp.alarm(OFF);
 }
 
 void rtcUpdate() { 
@@ -124,10 +130,16 @@ void chkAlUpdate() {
       alarm = newAl;
       EEPROM.write(0xa1, newAl % 100);
       newAl /= 100;
+      if (alarm >= 0 && alarm <= 2359) {
+        disp.alarm(ON);
+        alOn = true;
+      } else {
+        disp.alarm(OFF);
+        alOn = false;
+      }
       newAl |= alOn << 7;
       EEPROM.write(0xa2, newAl);
     }
-    if (alarm > 0 && alarm < 2400) alOn = true;
     char buf2[50];
     snprintf(buf2, sizeof(buf2), "\nAlarm set to: %02d:%02d", alarm / 100, alarm % 100);
     Serial.println(buf2);
@@ -268,8 +280,31 @@ void alarmDo() {
   }
 }
 
+void turnOff() {
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  attachInterrupt(1, turnOn, CHANGE);
+  sleep_mode();
+  sleep_disable();
+  detachInterrupt(1);
+}
+
+void turnOn() {
+
+}
+  
+
 void setup() {
-  Serial.begin(9600);
+  pinMode(10, OUTPUT);
+  pinMode(9, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);
+  digitalWrite(4, LOW);
+  digitalWrite(5, HIGH);
+  digitalWrite(10, LOW);
+  digitalWrite(9, HIGH);
+  Serial.begin(115200);
+  irrecv.enableIRIn();
   Serial.write("!?!");
 #ifdef FL7Dl_H
   ddelay = EEPROM.read(0xde);
@@ -283,6 +318,7 @@ void setup() {
   lo = EEPROM.read(0xa1);
   hi = EEPROM.read(0xa2) & B01111111;
   alarm = (hi * 100) + lo;
+  alOn = EEPROM.read(0xa2) >> 7;
   lo = EEPROM.read(0xb1);
   hi = EEPROM.read(0xb2);
   brite = (hi * 100) + lo;
@@ -340,6 +376,74 @@ void setting() {
   }
 }
   
+void checkIR() {
+  if (irrecv.decode(&res)) {
+    if (res.value != 4294967295) lastres = res.value;
+    switch (lastres) {
+    case 16580863: // TODO: Power Button
+      //turnOff();
+      break;
+    case 16613503: // Brightness +
+      brite += 10;
+      if (brite <= MAX_BRITE) {
+        disp.setBrightness(brite);
+        EEPROM.write(0xb1, brite % 100);
+        EEPROM.write(0xb2, brite / 100);
+      } else brite -= 10;
+      break;
+    case 16597183: // TODO: Add 'menu' routines for setup or something
+    break;
+    case 16589023: // Refresh delay -
+      ddelay -= 1;
+      if (ddelay >= 0) {
+        dispNew.setInterval(ddelay);
+        EEPROM.write(0xde, ddelay);
+      } else ddelay += 1;
+      break;
+    case 16621663: // Disable/Enable alarm
+      alOn = !alOn;
+      EEPROM.write(0xa2, (EEPROM.read(0xa2) & B01111111) | alOn << 7);
+      break;
+    case 16605343: // Refresh delay +
+      ddelay += 1;
+      if (ddelay <= MAX_DELAY) {
+        dispNew.setInterval(ddelay);
+        EEPROM.write(0xde, ddelay);
+      } else ddelay -= 1;
+      break;
+    case 16584943: // TODO: Add 'menu' down
+    break;
+    case 16617583: // Brightness -
+      brite -= 10;
+      if (brite >= 10) {
+        disp.setBrightness(brite);
+        EEPROM.write(0xb1, brite % 100);
+        EEPROM.write(0xb2, brite / 100);
+      } else brite += 10;
+      break;
+    case 16601263: // TODO: Add 'menu' up
+    break;
+    case 16593103: // TODO: 0
+    break;
+    case 16625743: // TODO: EQ
+    break;
+    case 16609423: // TODO: ST/REPT
+    break;
+    case 16582903: // TODO: 1
+    break;
+    case 16615543: // TODO: 2
+    case 16599223: // TODO: 3
+    case 16591063: // TODO: 4
+    case 16623703: // TODO: 5
+    case 16607383: // TODO: 6
+    case 16586983: // TODO: 7
+    case 16619623: // TODO: 8
+    case 16603303: // TODO: 9
+    break;
+    }
+    irrecv.resume();
+  }
+}
 
 void loop() {
   checkAlUpd.check();
@@ -347,4 +451,5 @@ void loop() {
   rtcUpdater.check();
   dispNew.check();
   ticker.check();
+  checkIR();
 }
