@@ -18,7 +18,7 @@
 #define alI 500U
 
 #ifdef MAX7219D_H
-  #define MCLK 5
+  #define MCLK 7
   #define MCS 6
   #define MDATA 2
   #define alP A0
@@ -40,6 +40,7 @@ TimedAction checkAlarm = TimedAction(alI, alarmDo);
 TimedAction iniSet = TimedAction(10, setting);
 
 boolean hasSet = false;
+bool isOn = true;
 int now = 0;
 int alarm = 2500;
 bool alOn = false;
@@ -269,10 +270,10 @@ void alarmDo() {
       break;
   }
   } else if (now >= alarm + 2 && now < alarm + 3) {
-      disp.alarm(OFF);
+      disp.alarm(alP);
       disp.yellow(OFF);
       disp.green(OFF);
-    checkAlarm.setInterval(alI);
+      checkAlarm.setInterval(alI);
       dispNew.setInterval(ddelay);    
       disp.setBrightness(brite);
     alState = 0;
@@ -281,16 +282,27 @@ void alarmDo() {
 }
 
 void turnOff() {
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  sleep_enable();
-  attachInterrupt(1, turnOn, CHANGE);
-  sleep_mode();
-  sleep_disable();
-  detachInterrupt(1);
+  disp.off();
+  digitalWrite(9, LOW);
+  checkAlarm.disable();
+  rtcUpdater.disable();
+  checkAlUpd.disable();
+  ticker.disable();
+  dispNew.disable();
+  isOn = false;
+  Serial.println(F("OFF"));
 }
 
 void turnOn() {
-
+  digitalWrite(9, HIGH);
+  checkAlarm.enable();
+  rtcUpdater.enable();
+  checkAlUpd.enable();
+  ticker.enable();
+  dispNew.enable();
+  disp.on();
+  isOn = true;
+  Serial.println(F("ON"));
 }
   
 
@@ -381,7 +393,11 @@ void checkIR() {
     if (res.value != 4294967295) lastres = res.value;
     switch (lastres) {
     case 16580863: // TODO: Power Button
-      //turnOff();
+      if (isOn) {
+        turnOff();
+      } else {
+        turnOn();
+      }
       break;
     case 16613503: // Brightness +
       brite += 10;
@@ -452,4 +468,5 @@ void loop() {
   dispNew.check();
   ticker.check();
   checkIR();
+  if (!isOn) delay(200);
 }
